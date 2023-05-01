@@ -7,6 +7,9 @@ import dotenv from "dotenv";
 import helmet from "helmet";
 import morgan from "morgan";
 
+import { getABI } from "./functions/web3/test";
+getABI("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f").then((data) => console.log(data))
+
 const PORT = process.env.PORT || 3001;
 
 const app = express();
