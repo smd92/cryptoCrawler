@@ -29,6 +29,9 @@ app.use(bodyParser.json({ limit: "30mb" }));
 app.use(bodyParser.urlencoded({ limit: "30mb", extended: true }));
 app.use(cors());
 
+import { testFn } from "./functions/web3/test";
+testFn();
+
 /* MONGOOSE SETUP */
 mongoose
   .connect(process.env.mongoDB!)
@@ -40,5 +43,3 @@ mongoose
   })
   .catch((error) => console.log(`${error} did not connect`));
 
-import { testFn } from "./functions/web3/test";
-testFn();
