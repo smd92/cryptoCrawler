@@ -29,8 +29,10 @@ app.use(bodyParser.json({ limit: "30mb" }));
 app.use(bodyParser.urlencoded({ limit: "30mb", extended: true }));
 app.use(cors());
 
-import { testFn } from "./functions/web3/test";
-testFn();
+/* import { testFn } from "./functions/web3/test_web3";
+testFn(); */
+import { ethersTestFn } from "./functions/ethersJS/test_ethers.ts";
+ethersTestFn();
 
 /* MONGOOSE SETUP */
 mongoose
@@ -42,4 +44,3 @@ mongoose
     console.log(mongoose.connection.readyState);
   })
   .catch((error) => console.log(`${error} did not connect`));
-

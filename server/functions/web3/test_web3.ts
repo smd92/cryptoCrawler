@@ -23,12 +23,16 @@ export const testFn = async () => {
     const ARBITRUM_NODE_URL = "https://arb1.arbitrum.io/rpc";
 
     // Token Factory address on Arbitrum
-    const UNISWAP_FACTORY_ADDRESS = "0x1F98431c8aD98523631AE4a59f267346ea31F984";
+    const UNISWAP_FACTORY_ADDRESS =
+      "0x1F98431c8aD98523631AE4a59f267346ea31F984";
 
     const web3 = new Web3(ARBITRUM_NODE_URL);
-    const factoryContract = new web3.eth.Contract(factoryABI, UNISWAP_FACTORY_ADDRESS);
+    const factoryContract = new web3.eth.Contract(
+      factoryABI,
+      UNISWAP_FACTORY_ADDRESS
+    );
 
-/*     factoryContract.methods._blockTimestamp().call((error: any, result: any) => {
+    /*     factoryContract.methods._blockTimestamp().call((error: any, result: any) => {
       if (error) {
         console.error(error);
       } else {
@@ -36,7 +40,7 @@ export const testFn = async () => {
       }
     }); */
 
-    console.log(factoryContract)
+    console.log(factoryContract);
   } catch (err: any) {
     console.log(err.message);
   }
