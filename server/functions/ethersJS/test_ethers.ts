@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { constants } from "../../constants.ts";
 import { getABI } from "../web3/test_web3.ts";
+import { get } from "http";
 
 export const ethersTestFn = async () => {
   try {
@@ -92,6 +93,19 @@ export const ethersTestFn = async () => {
     const wethPairs = pairsWithBasicData.filter(
       (pair) => pair.token0 === wethIdMainnet || pair.token1 === wethIdMainnet
     );
+
+    //get token decimals
+      const mappedDecimals = [];
+      for (let i = 0; i < wethPairs.length; i++) {
+        let token;
+        if (wethPairs[i].token0 === wethIdMainnet) token = wethPairs[i].token1;
+        if (wethPairs[i].token1 === wethIdMainnet) token = wethPairs[i].token0;
+        //get token contract abi
+      }
+    //map price
+    //price0 = (amount1 * 10^decimals0) / (amount0 * 10^decimals1)
+    //price1 = (amount0 * 10^decimals0) / (amount1 * 10^decimals1)
+
   } catch (err: any) {
     console.log(err.message);
   }
