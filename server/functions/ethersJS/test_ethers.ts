@@ -4,14 +4,21 @@ import { getABI } from "../web3/test_web3.ts";
 
 export const ethersTestFn = async () => {
   try {
-    const abiData = await getABI(constants.uniswap.v2.factoryId);
-    const factoryABI = JSON.parse(abiData.result);
+    //create provider
+    const provider = ethers.getDefaultProvider(
+      "https://ethereum.publicnode.com"
+    );
+
+    //get uniswap v2 factory ABI
+    const factoryAbiRaw = await getABI(constants.uniswap.v2.factoryId);
+    const factoryABI = JSON.parse(factoryAbiRaw.result);
     const uniswapFactory = new ethers.Contract(
       constants.uniswap.v2.factoryId,
       factoryABI,
-      ethers.getDefaultProvider("https://ethereum.publicnode.com")
+      provider
     );
 
+    //get addresses of latest pairs
     const allPairsLength = await uniswapFactory.allPairsLength();
     const startPoint = Number(allPairsLength) - 1;
     const endPoint = Number(allPairsLength) - 10;
@@ -20,10 +27,71 @@ export const ethersTestFn = async () => {
     for (let i = startPoint; i > endPoint; i--) {
       const pa = await uniswapFactory.allPairs(i);
       pairAddresses.push(pa);
-      console.log(`getting pa #${i + 1}`);
+      console.log(`getting pa #${i + 1} from factory`);
     }
-    console.log(pairAddresses[0]);
-    console.log(pairAddresses[8]);
+
+    //get ABIs of latest pairs
+    const latestPairsAbis = [];
+    for (let i = 0; i < pairAddresses.length; i++) {
+      const pa = pairAddresses[i];
+      const response = await getABI(pa);
+      if (response.status === "1" && response.result) {
+        const abi = JSON.parse(response.result);
+        latestPairsAbis.push({
+          pa,
+          abi,
+        });
+      } else {
+        console.log(`Could not fetch ABI of pair ${pa} from etherscan`);
+      }
+    }
+
+    //get basic pair data from each pair abi (including erc20): https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair
+    const pairsWithBasicData = [];
+    for (let i = 0; i < latestPairsAbis.length; i++) {
+      const pa = latestPairsAbis[i].pa;
+      const abi = latestPairsAbis[i].abi;
+      const pairContract = new ethers.Contract(pa, abi, provider);
+      const factory = await pairContract.factory();
+      const token0 = await pairContract.token0();
+      const token1 = await pairContract.token1();
+      const price0CumulativeLast = await pairContract.price0CumulativeLast();
+      const price1CumulativeLast = await pairContract.price1CumulativeLast();
+      const reserves = await pairContract.getReserves();
+      /*const decimals = await pairContract.decimals();
+      const kLast = await pairContract.kLast();
+      const totalSupply = await pairContract.totalSupply(); */
+      pairsWithBasicData.push({
+        pa,
+        abi,
+        factory,
+        token0,
+        token1,
+        price0CumulativeLast,
+        price1CumulativeLast,
+        reserves,
+        //decimals,
+        //kLast,
+        //totalSupply,
+      });
+    }
+
+    //get uniswap v2 Router02 ABI
+    const routerAbiRaw = await getABI(constants.uniswap.v2.router02id);
+    const routerAbi = JSON.parse(routerAbiRaw.result);
+    const uniswapRouter02 = new ethers.Contract(
+      constants.uniswap.v2.router02id,
+      routerAbi,
+      provider
+    );
+
+    //get WETH id mainnet
+    const wethIdMainnet = await uniswapRouter02.WETH();
+
+    //filter WETH pairs
+    const wethPairs = pairsWithBasicData.filter(
+      (pair) => pair.token0 === wethIdMainnet || pair.token1 === wethIdMainnet
+    );
   } catch (err: any) {
     console.log(err.message);
   }
