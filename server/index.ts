@@ -29,10 +29,8 @@ app.use(bodyParser.json({ limit: "30mb" }));
 app.use(bodyParser.urlencoded({ limit: "30mb", extended: true }));
 app.use(cors());
 
-/* import { testFn } from "./functions/web3/test_web3";
-testFn(); */
-import { ethersTestFn } from "./functions/ethersJS/test_ethers.ts";
-ethersTestFn();
+import { getListingsMainnet } from "./functions/ethersJS/listingsMainnet.ts";
+getListingsMainnet();
 
 /* MONGOOSE SETUP */
 mongoose
