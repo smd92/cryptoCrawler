@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { constants } from "../../constants.ts";
-import { getABI } from "../apis/etherscan.ts";
+import { getABI, getContractCreationInfo } from "../apis/etherscan.ts";
 import { getBlockNumberFromNhoursAgo } from "./helpers.ts";
 
 export const getListingsMainnet = async () => {
@@ -22,7 +22,7 @@ export const getListingsMainnet = async () => {
     //get addresses of latest pairs
     const allPairsLength = await uniswapFactory.allPairsLength();
     const startPoint = Number(allPairsLength) - 1;
-    const endPoint = Number(allPairsLength) - 20;
+    const endPoint = Number(allPairsLength) - 10;
 
     const pairAddresses = [];
     for (let i = startPoint; i > endPoint; i--) {
@@ -116,7 +116,7 @@ export const getListingsMainnet = async () => {
     });
 
     //get token decimals of shitcoin
-    const mappedDecimals = [];
+    const mappedShitcoinData = [];
     for (let i = 0; i < mappedShitcoin.length; i++) {
       try {
         const pair = mappedShitcoin[i];
@@ -132,7 +132,11 @@ export const getListingsMainnet = async () => {
             abi,
             provider
           );
+          const shitcoinSymbol = await tokenContract.symbol();
+          const shitcoinName = await tokenContract.name();
           const shitcoinDecimals = await tokenContract.decimals();
+          pair.shitcoin.symbol = shitcoinSymbol;
+          pair.shitcoin.name = shitcoinName;
           pair.shitcoin.decimals = Number(shitcoinDecimals);
 
           if (pair.shitcoin.isToken0) {
@@ -143,7 +147,7 @@ export const getListingsMainnet = async () => {
             pair.token1Decimals = shitcoinDecimals;
           }
 
-          mappedDecimals.push(pair);
+          mappedShitcoinData.push(pair);
         } else {
           console.log(
             `Could not fetch ABI of token ${pair.shitcoin.ca} from etherscan`
@@ -152,7 +156,7 @@ export const getListingsMainnet = async () => {
         console.log(
           `fetching shitcoin ABIs ${i + 1} of ${mappedShitcoin.length} done`
         );
-      } catch (err: any) {
+      } catch (err) {
         console.log(
           `Error getting decimals of token ${mappedShitcoin[i].shitcoin.ca}`
         );
@@ -163,7 +167,7 @@ export const getListingsMainnet = async () => {
     const priceWethUsd = 1800;
 
     //map price and liquidity in usd to shitcoin
-    const mappedPrice = mappedDecimals.map((pair: any) => {
+    const mappedPrice = mappedShitcoinData.map((pair: any) => {
       const wethReserveAdjusted = pair.wethReserve / 10 ** 18; // 18 = weth decimals
       const shitcoinReserveAdjusted =
         pair.shitcoinReserve / 10 ** pair.shitcoin.decimals;
@@ -300,10 +304,45 @@ export const getListingsMainnet = async () => {
     }
 
     //filter by min volume
-    const filteredByMinVolume = mappedVolume.filter((pair) => pair.volume24Usd >= 2000);
-
+    const filteredByMinVolume = mappedVolume.filter(
+      (pair) => pair.volume24Usd >= 2000
+    );
     //map supply
-    
+
+    //map pair creation info to get pair creation timestamp
+    const mappedPairCreationInfo = [];
+    for (let i = 0; i < filteredByMinVolume.length; i++) {
+      try {
+        const pair = filteredByMinVolume[i];
+        const response = await getContractCreationInfo(pair.pa);
+        if (
+          response?.data.status?.toString() === "1" &&
+          response?.data?.result &&
+          response.data.result.length > 0
+        ) {
+          const contractCreator = response.data.result[0].contractCreator;
+          const creationTxHash = response.data.result[0].txHash;
+
+          const transactionReceipt = await provider.getTransactionReceipt(
+            creationTxHash
+          );
+
+          // @ts-ignore
+          const creationBlock = await provider.getBlock(
+            // @ts-ignore
+            transactionReceipt?.blockHash
+          );
+          pair.contractCreator = contractCreator;
+          pair.createdAtTimestamp = creationBlock?.timestamp;
+          mappedPairCreationInfo.push(pair);
+        }
+      } catch (err: any) {
+        console.log(
+          `Error getting getting creation info of pair ${filteredByMinVolume[i].pa}: ${err.message}`
+        );
+      }
+    }
+    console.log(mappedPairCreationInfo);
   } catch (err: any) {
     console.log(err.message);
   }
