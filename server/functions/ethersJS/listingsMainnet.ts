@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { constants } from "../../constants.ts";
-import { getABI } from "../web3/test_web3.ts";
+import { getABI } from "../apis/etherscan.ts";
 import { getBlockNumberFromNhoursAgo } from "./helpers.ts";
 
 export const getListingsMainnet = async () => {
@@ -12,7 +12,7 @@ export const getListingsMainnet = async () => {
 
     //get uniswap v2 factory ABI
     const factoryAbiRaw = await getABI(constants.uniswap.v2.factoryId);
-    const factoryABI = JSON.parse(factoryAbiRaw.result);
+    const factoryABI = JSON.parse(factoryAbiRaw?.data.result);
     const uniswapFactory = new ethers.Contract(
       constants.uniswap.v2.factoryId,
       factoryABI,
@@ -22,7 +22,7 @@ export const getListingsMainnet = async () => {
     //get addresses of latest pairs
     const allPairsLength = await uniswapFactory.allPairsLength();
     const startPoint = Number(allPairsLength) - 1;
-    const endPoint = Number(allPairsLength) - 10;
+    const endPoint = Number(allPairsLength) - 20;
 
     const pairAddresses = [];
     for (let i = startPoint; i > endPoint; i--) {
@@ -36,8 +36,8 @@ export const getListingsMainnet = async () => {
     for (let i = 0; i < pairAddresses.length; i++) {
       const pa = pairAddresses[i];
       const response = await getABI(pa);
-      if (response.status === "1" && response.result) {
-        const abi = JSON.parse(response.result);
+      if (response?.data.status?.toString() === "1" && response?.data?.result) {
+        const abi = JSON.parse(response.data.result);
         latestPairsAbis.push({
           pa,
           abi,
@@ -45,7 +45,9 @@ export const getListingsMainnet = async () => {
       } else {
         console.log(`Could not fetch ABI of pair ${pa} from etherscan`);
       }
-      console.log(`fetching latest pairs ABIs ${i + 1} of ${pairAddresses.length} done`);
+      console.log(
+        `fetching latest pairs ABIs ${i + 1} of ${pairAddresses.length} done`
+      );
     }
 
     //get basic pair data from each pair abi (including erc20): https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair
@@ -68,12 +70,14 @@ export const getListingsMainnet = async () => {
         reserves,
         totalSupply,
       });
-      console.log(`mapping basic pair data ${i + 1} of ${latestPairsAbis.length} done`);
+      console.log(
+        `mapping basic pair data ${i + 1} of ${latestPairsAbis.length} done`
+      );
     }
 
     //get uniswap v2 Router02 ABI
     const routerAbiRaw = await getABI(constants.uniswap.v2.router02id);
-    const routerAbi = JSON.parse(routerAbiRaw.result);
+    const routerAbi = JSON.parse(routerAbiRaw?.data.result);
     const uniswapRouter02 = new ethers.Contract(
       constants.uniswap.v2.router02id,
       routerAbi,
@@ -114,26 +118,45 @@ export const getListingsMainnet = async () => {
     //get token decimals of shitcoin
     const mappedDecimals = [];
     for (let i = 0; i < mappedShitcoin.length; i++) {
-      const pair = mappedShitcoin[i];
-      //get token contract abi
-      const response = await getABI(pair.shitcoin.ca);
-      if (response.status === "1" && response.result) {
-        const abi = JSON.parse(response.result);
-        const tokenContract = new ethers.Contract(
-          pair.shitcoin.ca,
-          abi,
-          provider
-        );
-        const shitcoinDecimals = await tokenContract.decimals();
-        pair.shitcoin.decimals = Number(shitcoinDecimals);
+      try {
+        const pair = mappedShitcoin[i];
+        //get token contract abi
+        const response = await getABI(pair.shitcoin.ca);
+        if (
+          response?.data.status?.toString() === "1" &&
+          response?.data?.result
+        ) {
+          const abi = JSON.parse(response?.data.result);
+          const tokenContract = new ethers.Contract(
+            pair.shitcoin.ca,
+            abi,
+            provider
+          );
+          const shitcoinDecimals = await tokenContract.decimals();
+          pair.shitcoin.decimals = Number(shitcoinDecimals);
 
-        mappedDecimals.push(pair);
-      } else {
+          if (pair.shitcoin.isToken0) {
+            pair.token0Decimals = shitcoinDecimals;
+            pair.token1Decimals = 18; // weth decimals
+          } else {
+            pair.token0Decimals = 18; // weth decimals
+            pair.token1Decimals = shitcoinDecimals;
+          }
+
+          mappedDecimals.push(pair);
+        } else {
+          console.log(
+            `Could not fetch ABI of token ${pair.shitcoin.ca} from etherscan`
+          );
+        }
         console.log(
-          `Could not fetch ABI of token ${pair.shitcoin.ca} from etherscan`
+          `fetching shitcoin ABIs ${i + 1} of ${mappedShitcoin.length} done`
+        );
+      } catch (err: any) {
+        console.log(
+          `Error getting decimals of token ${mappedShitcoin[i].shitcoin.ca}`
         );
       }
-      console.log(`fetching shitcoin ABIs ${i + 1} of ${mappedShitcoin.length} done`);
     }
 
     //get price of weth in usd
@@ -169,7 +192,9 @@ export const getListingsMainnet = async () => {
 
     //map volume
     const mappedVolume = [];
-    const blockNumber = await getBlockNumberFromNhoursAgo(24, provider);
+    let blockNumber;
+    if (filteredByLiq.length > 0)
+      blockNumber = await getBlockNumberFromNhoursAgo(24, provider);
     for (let i = 0; i < filteredByLiq.length; i++) {
       const pair = filteredByLiq[i];
 
@@ -184,18 +209,101 @@ export const getListingsMainnet = async () => {
         };
 
         const events = await provider.getLogs(filter);
-        console.log({
-          pa: pair.pa,
-          eventsLength: events.length,
-          token0: pair.token0,
-          token1: pair.token1,
+        const swaps: any[] = [];
+
+        events.forEach((event) => {
+          const parsedEvent = pairContract.interface.parseLog({
+            topics: [...event.topics],
+            data: event.data,
+          });
+          const parsedData = parsedEvent?.args;
+          if (parsedData) {
+            const swapData = {
+              transactionHash: event.transactionHash,
+              blockNumber: event.blockNumber,
+              from: parsedData.from,
+              to: parsedData.to,
+              amount0In: parsedData.amount0In,
+              amount1In: parsedData.amount1In,
+              amount0Out: parsedData.amount0Out,
+              amount1Out: parsedData.amount1Out,
+            };
+            swaps.push(swapData);
+          } else {
+            console.log(`Seems like there is no parsedData`);
+          }
         });
+
+        if (swaps.length > 0) {
+          //normalize swap amounts
+          const swapsAdjusted = swaps.map((swap) => {
+            swap.amount0InAdjusted =
+              Number(swap.amount0In) / 10 ** Number(pair.token0Decimals);
+            swap.amount1InAdjusted =
+              Number(swap.amount1In) / 10 ** Number(pair.token1Decimals);
+            swap.amount0OutAdjusted =
+              Number(swap.amount0Out) / 10 ** Number(pair.token0Decimals);
+            swap.amount1OutAdjusted =
+              Number(swap.amount1Out) / 10 ** Number(pair.token1Decimals);
+            return swap;
+          });
+
+          //get usd values of swap amounts
+          const swapsInUsd = swapsAdjusted.map((swap) => {
+            if (pair.shitcoin.isToken0) {
+              swap.amount0InUsd =
+                swap.amount0InAdjusted * pair.shitcoin.priceUsd;
+              swap.amount1InUsd = swap.amount1InAdjusted * priceWethUsd;
+              swap.amount0OutUsd =
+                swap.amount0OutAdjusted * pair.shitcoin.priceUsd;
+              swap.amount1OutUsd = swap.amount1OutAdjusted * priceWethUsd;
+            } else {
+              swap.amount0InUsd = swap.amount0InAdjusted * priceWethUsd;
+              swap.amount1InUsd =
+                swap.amount1InAdjusted * pair.shitcoin.priceUsd;
+              swap.amount0OutUsd = swap.amount0OutAdjusted * priceWethUsd;
+              swap.amount1OutUsd =
+                swap.amount1OutAdjusted * pair.shitcoin.priceUsd;
+            }
+            return swap;
+          });
+
+          let buyVolume = 0;
+          let sellVolume = 0;
+
+          swapsInUsd.forEach((swap) => {
+            if (pair.shitcoin.isToken0) {
+              buyVolume += swap.amount1InUsd;
+              sellVolume += swap.amount1OutUsd;
+            } else {
+              buyVolume += swap.amount0InUsd;
+              sellVolume += swap.amount0OutUsd;
+            }
+          });
+
+          pair.buyVolume24hUsd = buyVolume;
+          pair.sellVolume24hUsd = sellVolume;
+          pair.volume24Usd = buyVolume + sellVolume;
+
+          delete pair.abi;
+          mappedVolume.push(pair);
+        } else {
+          console.log(
+            `Cant map volume to pair ${pair.pa} because there seem to be no swaps`
+          );
+        }
       } else {
         console.log(
           `something is wrong with the event fragment of pair ${pair.pa}`
         );
       }
     }
+
+    //filter by min volume
+    const filteredByMinVolume = mappedVolume.filter((pair) => pair.volume24Usd >= 2000);
+
+    //map supply
+    
   } catch (err: any) {
     console.log(err.message);
   }

@@ -1,5 +1,3 @@
-import { ethers } from "ethers";
-
 export default async function getClosestBlock(
   timestamp: number,
   provider: any,
